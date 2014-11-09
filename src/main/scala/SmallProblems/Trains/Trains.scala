@@ -11,7 +11,7 @@ import sun.beans.editors.EnumEditor
  * Created by 2 on 09.11.2014.
  */
 
-object Trains/*(graph:String)*/extends App {
+class Trains(graph:String) {
   //English alphabet and digits Unicode values matches ASCII
   //so its possible to effectively determine indecies  and digit range by char values
   val A_CODE=65;
@@ -20,7 +20,7 @@ object Trains/*(graph:String)*/extends App {
   def ERR= throw new IllegalArgumentException("Unsupported input format")
 
 
- val graph="AB5, BC4, CD8, DC8, DE6, AD5, CE2, EB3, AE7"
+// val graph="AB5, BC4, CD8, DC8, DE6, AD5, CE2, EB3, AE7"
   
   //let format be a bit more liberal for spaces
   val parsed =graph.trim.split("\\s*,\\s+").map(_.toList).map{
@@ -39,14 +39,13 @@ object Trains/*(graph:String)*/extends App {
   def calcDirectRouteDistance(route:String)={
 
     @tailrec
-    def calc(route:Iterable[Int],prevPoint:Int,aggregatedWeight:Int):Int= {
-      route.headOption.map {
-        nextPoint =>
+    def calc(route:Iterable[Int],prevPoint:Int,aggregatedWeight:Int):String= {
+      route.headOption.map { nextPoint =>
          adjList(prevPoint).toMap.get(nextPoint).map(weight => (route.drop(1), nextPoint, aggregatedWeight + weight))
       } match {
         case Some(Some((route, point, weight))) => calc(route, point, weight)
-        case Some(None) => -1
-        case _ => aggregatedWeight
+        case Some(None) => "NO SUCH ROUTE"
+        case _ => aggregatedWeight.toString
       }
     }
 
@@ -59,8 +58,8 @@ object Trains/*(graph:String)*/extends App {
 
   def calcShortestDistance(route:String)={
 
-    val(start,end)=getStartEnd(route)
-    val pathWeights= ArrayBuffer[(Long,Int)]().padTo(listSize,(Int.MaxValue.toLong+1,-1)).toArray
+    val((start,end),infinity)=(getStartEnd(route),Int.MaxValue.toLong+1)
+    val pathWeights= ArrayBuffer[(Long,Int)]().padTo(listSize,(infinity,-1)).toArray
 
     @tailrec
     def calc(stack:Stack[(Int,Int)]){
@@ -83,7 +82,7 @@ object Trains/*(graph:String)*/extends App {
     }
 
     calc(Stack[(Int,Int)]().push(start->0))
-    pathWeights(end)._1
+    pathWeights.lift(end).find(_._1 !=infinity).map(_.toString).getOrElse("NO SUCH ROUTE")
   }
   object Conditions {
     case class Val(get:(Int,Int)=>Boolean){def apply(i:Int,j:Int)=get(i,j)}
@@ -112,7 +111,7 @@ object Trains/*(graph:String)*/extends App {
           calc(_found,_stack)
       }
     }
-    calc(0,Stack().push(start->0))
+    calc(0,Stack().push(start->0)).toString
   }
 
   def calcNumberOfRoutesByStops(threshold:Int,cond:Val,route:String)={
@@ -123,12 +122,12 @@ object Trains/*(graph:String)*/extends App {
   }
 
 
-  println(calcDirectRouteDistance("A-D-C."))
+ /* println(calcDirectRouteDistance("A-D-C-H."))
   println(calcShortestDistance("B,E"))
   println(calcNumberOfRoutesByStops(3,lt,"C,C"))
   println(calcNumberOfRoutesByStops(4,equiv,"A,C"))
   println(calcNumberOfRoutesByDistance(30,lt,"C,C"))
-
+*/
 
 
 
