@@ -5,11 +5,13 @@ import scala.annotation.tailrec
 import java.util
 import scala.collection.immutable.Stack
 import scala.collection.mutable.ArrayBuffer
+import sun.beans.editors.EnumEditor
 
 /**
  * Created by 2 on 09.11.2014.
  */
-class Trains(graph:String) {
+
+object Trains/*(graph:String)*/extends App {
   //English alphabet and digits Unicode values matches ASCII
   //so its possible to effectively determine indecies  and digit range by char values
   val A_CODE=65;
@@ -18,7 +20,7 @@ class Trains(graph:String) {
   def ERR= throw new IllegalArgumentException("Unsupported input format")
 
 
- // val graph="AB5, BC4, CD8, DC8, DE6, AD5, CE2, EB3, AE7"
+ val graph="AB5, BC4, CD8, DC8, DE6, AD5, CE2, EB3, AE7"
   
   //let format be a bit more liberal for spaces
   val parsed =graph.trim.split("\\s*,\\s+").map(_.toList).map{
@@ -83,32 +85,51 @@ class Trains(graph:String) {
     calc(Stack[(Int,Int)]().push(start->0))
     pathWeights(end)._1
   }
+  object Conditions {
+    case class Val(get:(Int,Int)=>Boolean){def apply(i:Int,j:Int)=get(i,j)}
+    private val ord = implicitly[Ordering[Int]]
+    val equiv=Val(ord.equiv)
+    val lt=Val(ord.lt)
+    val lteq=Val(ord.lteq)
+  }
 
-  private def calcWeightWithConditions(findCond:(Int,Int)=>Boolean,searchCond:(Int)=>Boolean,kidsProcessor:((Int,Int),Int)=>Int,subject:Int,route:String)={
-    
+  import Conditions._
+  private def calcWeightWithConditions(findCond:(Int,Int)=>Boolean,searchCondition:Conditions.Val,kidsProcessor:(Int,Int)=>Int,threshold:Int,route:String)={
+
     val(start,end)=getStartEnd(route)
 
     def calc(found:Int,stack:Stack[(Int,Int)]):Int= {
       if (stack.isEmpty) found  else{
         val ((start, subj), tail) = stack.pop2
-        if (searchCond(subj)) {
-          val kids = adjList(start)
-          def stackWithKids = kids.foldLeft(tail)((s, k) => s.push((k._1, kidsProcessor(k,subj))))
-          def gotIt=kids.toMap.get(end).find(weight=>findCond(weight,subj)).isDefined
-          calc(if(gotIt)found+1 else found, stackWithKids)
-        } else calc(found, stack.pop)
+          def kids=adjList(start)
+          def addKidds = kids.foldLeft(tail){case(s,(kInd,kWeight)) => s.push((kInd, kidsProcessor(kWeight,subj)))}
+          def calcFound=kids.toMap.get(end).find(findCond(_,subj)).map(_=>found+1).getOrElse(found)
+          val(_stack,_found) = {
+            if (searchCondition(subj, threshold)) addKidds -> calcFound
+            else if(searchCondition==equiv && subj<threshold)addKidds->found
+            else stack.pop->found
+          }
+          calc(_found,_stack)
       }
     }
-    calc(0,Stack().push(start->subject))
+    calc(0,Stack().push(start->0))
   }
 
-//  def calcNumberOfRoutesByStops(stops:Int,condition:(Int)=>Boolean)
-//  def calcNumberOfRoutesByDistance=Ordering[Int].gt
+  def calcNumberOfRoutesByStops(threshold:Int,cond:Val,route:String)={
+    calcWeightWithConditions((_,s)=>cond(s,threshold),cond,(_,s)=>s+1,threshold,route)
+  }
+  def calcNumberOfRoutesByDistance(threshold:Int,cond:Val,route:String)={
+    calcWeightWithConditions((w,s)=>cond(w+s,threshold),cond,(w,s)=>s + w,threshold,route)
+  }
+
 
   println(calcDirectRouteDistance("A-D-C."))
   println(calcShortestDistance("B,E"))
-  println(calcWeightWithConditions((_,s)=>s>=0,_>=0,(_,s)=>s-1,2,"C,C"))
-  println(calcWeightWithConditions((_,s)=>s==0,_>=0,(_,s)=>s-1,3,"A,C"))
-  println(calcWeightWithConditions((w,s)=>s-w>0,_>0,(k,s)=>s-k._2,30,"C,C"))
+  println(calcNumberOfRoutesByStops(3,lt,"C,C"))
+  println(calcNumberOfRoutesByStops(4,equiv,"A,C"))
+  println(calcNumberOfRoutesByDistance(30,lt,"C,C"))
+
+
+
 
 }
