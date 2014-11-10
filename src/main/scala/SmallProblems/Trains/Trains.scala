@@ -8,19 +8,19 @@ import scala.collection.mutable.ArrayBuffer
 import sun.beans.editors.EnumEditor
 
 /**
- * Created by 2 on 09.11.2014.
+ * Created by IGarkusha on 09.11.2014.
  */
 
 class Trains(val graph:String) {
   //English alphabet and digits Unicode values matches ASCII
   //so its possible to effectively determine indecies  and digit range by char values
-  val A_CODE=65;
-  val MIN_DIGIT=48
-  val MAX_DIGIT=57
-  def ERR(msg:String="Unsupported input format")= throw new IllegalArgumentException(msg)
+  private val A_CODE=65;
+  private val MIN_DIGIT=48
+  private val MAX_DIGIT=57
+  private def ERR(msg:String="Unsupported input format")= throw new IllegalArgumentException(msg)
 
   //let format be a bit more liberal for spaces
-  val parsed =graph.trim.split("\\s*,\\s+").map(_.toList).map{
+  private val parsed =graph.trim.split("\\s*,\\s+").map(_.toList).map{
     case from::to::weight if weight.forall(c=> c>=MIN_DIGIT && c<=MAX_DIGIT) => (from-A_CODE ,to-A_CODE, weight.mkString.toInt)
     case _ => ERR()
   }
@@ -33,9 +33,9 @@ class Trains(val graph:String) {
 
 
   //size is determined by the index of the element with maximal code(its expected that node labels sequence is consistent)
-  val listSize=parsed.foldLeft(0){case (max,(from,to,_))=>Seq(max,from,to).max}+1
+  private val listSize=parsed.foldLeft(0){case (max,(from,to,_))=>Seq(max,from,to).max}+1
   //Adjacency list to represent graph
-  val adjList=new Array[Iterable[(Int,Int)]](listSize)
+  private val adjList=new Array[Iterable[(Int,Int)]](listSize)
 
   //populating the adjacency list
   parsed.groupBy(_._1).foreach(indToList=>adjList(indToList._1)=indToList._2.map{case(_,to,weight)=>(to,weight)})
@@ -105,6 +105,7 @@ class Trains(val graph:String) {
   import Conditions._
   //this method covers relatively similar cases 6 , 7 and 10.
   //subjectProcessor - transforms subject of calculation based on nodes weight and current subject of calculation (weight is ignored in case of stops calculation)
+  //this function is easily parallelizable and benefits from it.
   private def calcWeightWithConditions(searchCond:Val,subjProcessor:(Int,Int)=>Int,route:String)={
 
     val(start,end)=getStartEnd(route)
