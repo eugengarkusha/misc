@@ -96,22 +96,17 @@ class Trains(val graph:String) {
   }
 
   object Conditions {
-    case class Val(get:(Int,Int)=>Boolean){def apply(i:Int,j:Int)=get(i,j)}
+    abstract class Val(get:(Int,Int)=>Boolean){ def threshold:Int;def apply(subj:Int)=get(subj,threshold)}
     private val ord = implicitly[Ordering[Int]]
-    val equiv=Val(ord.equiv)
-    val lt=Val(ord.lt)
-    val lteq=Val(ord.lteq)
+    case class Eq(threshold:Int)extends Val(ord.equiv)
+    case class <(threshold:Int)extends Val(ord.lt)
+    case class <=(threshold:Int)extends Val(ord.lteq)
   }
 
   import Conditions._
-  //this method covers relatively similar cases 6 , 7 and 10.Though it may  be less cpu time consuming to implement
-  //separate methods  for mentioned cases( one for 6 and 7 and other for 10) but I found it more interesting to
-  //reveal the flexibility of  higher order functions and combine them.
-  //findCond - is the function that takes weight and subject of calculation(weight is not used in case of path length calculation)
-  //threshold -the value subject should not "cross"
-  //searchCond - relation of the subject to threshold(lt,lteq,eq)
-  //kidsprocessor - takes weight and subject and calculates new subjects for the kids ( increments path lenght or adds current edge weight to aggregatedWeight)
-  private def calcWeightWithConditions(findCond:(Int,Int)=>Boolean,searchCond:Val,kidsProcessor:(Int,Int)=>Int,threshold:Int,route:String)={
+  //this method covers relatively similar cases 6 , 7 and 10.
+  //subjectProcessor - transforms subject of calculation based on nodes weight(weight is ignored in case of stops calculation)
+  private def calcWeightWithConditions(searchCond:Val,subjProcessor:(Int,Int)=>Int,route:String)={
 
     val(start,end)=getStartEnd(route)
     //indToSubj is the aggregator similar to one used in calcShortestDistance
@@ -119,27 +114,19 @@ class Trains(val graph:String) {
     def calc(found:Int,indToSubj:List[(Int,Int)]):Int= {
       if (indToSubj.isEmpty) found  else{
         val ((start, subj), tail) = indToSubj.head->indToSubj.tail
-          def kids=adjList(start)
-          def addKidds = kids.foldLeft(tail){case(s,(kInd,kWeight)) => ((kInd, kidsProcessor(kWeight,subj)))::s}
-          def calcFound=kids.toMap.get(end).find(findCond(_,subj)).map(_=>found+1).getOrElse(found)
-          val(_stack,_found) = {
-            if (searchCond(subj, threshold)) addKidds -> calcFound
-            //collecting kids while not trying to conduct search
-            else if(searchCond==equiv && subj<threshold)addKidds->found
-            //dropping nodes which are out of threshold
-            else indToSubj.tail->found
-          }
-          calc(_found,_stack)
+          val kids=adjList(start).map{case(kInd,kWeight) => (kInd, subjProcessor(kWeight,subj))}.filterNot(_._2 > searchCond.threshold)
+          val calcFound=kids.find(_._1==end).find(k=>searchCond(k._2)).map(_=>found+1).getOrElse(found)
+          calc(calcFound,tail++kids)
       }
     }
     calc(0,List(start->0)).toString
   }
 
-  def calcNumberOfRoutesByStops(threshold:Int,cond:Val,route:String)={
-    calcWeightWithConditions((_,s)=>cond(s,threshold),cond,(_,s)=>s+1,threshold,route)
+  def calcNumberOfRoutesByStops(cond:Val,route:String)={
+    calcWeightWithConditions(cond,(_,s)=>s+1,route)
   }
-  def calcNumberOfRoutesByDistance(threshold:Int,cond:Val,route:String)={
-    calcWeightWithConditions((w,s)=>cond(w+s,threshold),cond,(w,s)=>s + w,threshold,route)
+  def calcNumberOfRoutesByDistance(cond:Val,route:String)={
+    calcWeightWithConditions(cond,(w,s)=>s + w,route)
   }
 
 
