@@ -11,7 +11,7 @@ import sun.beans.editors.EnumEditor
  * Created by 2 on 09.11.2014.
  */
 
-class Trains(graph:String) {
+class Trains(val graph:String) {
   //English alphabet and digits Unicode values matches ASCII
   //so its possible to effectively determine indecies  and digit range by char values
   val A_CODE=65;
@@ -19,8 +19,9 @@ class Trains(graph:String) {
   val MAX_DIGIT=57
   def ERR= throw new IllegalArgumentException("Unsupported input format")
 
+  //CHECK FOR START END POINT
+  //CHECK FOR DUP ROUTES
 
-// val graph="AB5, BC4, CD8, DC8, DE6, AD5, CE2, EB3, AE7"
   
   //let format be a bit more liberal for spaces
   val parsed =graph.trim.split("\\s*,\\s+").map(_.toList).map{
@@ -28,12 +29,14 @@ class Trains(graph:String) {
     case _ => ERR
   }
 
+  //size is determined by the index of the element with maximal code(its expected that node labels sequence is consistent)
   val listSize=parsed.foldLeft(0){case (max,(from,to,_))=>Seq(max,from,to).max}+1
 
+  //Adjacency list to represent graph
   val adjList=new Array[Iterable[(Int,Int)]](listSize)
 
+  //populating the adjacency list
   parsed.groupBy(_._1).foreach(indToList=>adjList(indToList._1)=indToList._2.map{case(_,to,weight)=>(to,weight)})
-
 
 
   def calcDirectRouteDistance(route:String)={
@@ -56,17 +59,23 @@ class Trains(graph:String) {
 
   private def getStartEnd(route:String)="""^[A-Z],[A-Z]$""".r.findFirstIn(route).map(s=>(s.charAt(0)-A_CODE,s.charAt(2)-A_CODE)).getOrElse(ERR)
 
+  //Dijkstra’s algorithm is applied here
   def calcShortestDistance(route:String)={
 
     val((start,end),infinity)=(getStartEnd(route),Int.MaxValue.toLong+1)
+    //pathWeights holds not only the weights for noedes by index but
+    //the previous node on a shortest path so it is easy to get it if needed.
     val pathWeights= ArrayBuffer[(Long,Int)]().padTo(listSize,(infinity,-1)).toArray
 
     @tailrec
-    def calc(stack:Stack[(Int,Int)]){
+    //indsToAggrWeights is a buffer for aggregating children of newely visited nodes for further processing
+    def calc(indsToAggrWeights:List[(Int,Int)]){
 
-     if(stack.nonEmpty){
-       val ((start,aggregatedWeight),poppedBuffer)=stack.pop2
+     if(indsToAggrWeights.nonEmpty){
+       val ((start,aggregatedWeight),tail)=(indsToAggrWeights.head,indsToAggrWeights.tail)
+       println("start="+start)
        def kids=adjList(start)
+       println("kids=="+kids)
 
        calc {
          kids.map {
@@ -76,14 +85,16 @@ class Trains(graph:String) {
                pathWeights(ind) = (fullWeight.toLong, start)
                Some(k)
              } else None
-         }.flatten.toList.sortBy(_._2)(implicitly[Ordering[Int]].reverse).foldLeft(poppedBuffer)((s, k) => s.push((k._1, aggregatedWeight + k._2)))
+         }.flatten.toList.sortBy(_._2)(implicitly[Ordering[Int]].reverse).foldLeft(tail){
+           case(tail, (kInd,kWeight)) => (kInd, aggregatedWeight + kWeight)::tail}
        }
       }
     }
 
-    calc(Stack[(Int,Int)]().push(start->0))
-    pathWeights.lift(end).find(_._1 !=infinity).map(_.toString).getOrElse("NO SUCH ROUTE")
+    calc(List(start->0))
+    pathWeights.lift(end).find(_._1 !=infinity).map(_._1.toString).getOrElse("NO SUCH ROUTE")
   }
+
   object Conditions {
     case class Val(get:(Int,Int)=>Boolean){def apply(i:Int,j:Int)=get(i,j)}
     private val ord = implicitly[Ordering[Int]]
@@ -93,25 +104,35 @@ class Trains(graph:String) {
   }
 
   import Conditions._
-  private def calcWeightWithConditions(findCond:(Int,Int)=>Boolean,searchCondition:Conditions.Val,kidsProcessor:(Int,Int)=>Int,threshold:Int,route:String)={
+  //this method covers relatively similar cases 6 , 7 and 10.Though it may  be less cpu time consuming to implement
+  //separate methods  for mentioned cases( one for 6 and 7 and other for 10) but I found it more interesting to
+  //reveal the flexibility of  higher order functions and combine them.
+  //findCond - is the function that takes weight and subject of calculation(weight is not used in case of path length calculation)
+  //threshold -the value subject should not "cross"
+  //searchCond - relation of the subject to threshold(lt,lteq,eq)
+  //kidsprocessor - takes weight and subject and calculates new subjects for the kids ( increments path lenght or adds current edge weight to aggregatedWeight)
+  private def calcWeightWithConditions(findCond:(Int,Int)=>Boolean,searchCond:Val,kidsProcessor:(Int,Int)=>Int,threshold:Int,route:String)={
 
     val(start,end)=getStartEnd(route)
-
-    def calc(found:Int,stack:Stack[(Int,Int)]):Int= {
-      if (stack.isEmpty) found  else{
-        val ((start, subj), tail) = stack.pop2
+    //indToSubj is the aggregator similar to one used in calcShortestDistance
+    //ind - node index, subj- subject of calculation(weight or path length)
+    def calc(found:Int,indToSubj:List[(Int,Int)]):Int= {
+      if (indToSubj.isEmpty) found  else{
+        val ((start, subj), tail) = indToSubj.head->indToSubj.tail
           def kids=adjList(start)
-          def addKidds = kids.foldLeft(tail){case(s,(kInd,kWeight)) => s.push((kInd, kidsProcessor(kWeight,subj)))}
+          def addKidds = kids.foldLeft(tail){case(s,(kInd,kWeight)) => ((kInd, kidsProcessor(kWeight,subj)))::s}
           def calcFound=kids.toMap.get(end).find(findCond(_,subj)).map(_=>found+1).getOrElse(found)
           val(_stack,_found) = {
-            if (searchCondition(subj, threshold)) addKidds -> calcFound
-            else if(searchCondition==equiv && subj<threshold)addKidds->found
-            else stack.pop->found
+            if (searchCond(subj, threshold)) addKidds -> calcFound
+            //collecting kids while not trying to conduct search
+            else if(searchCond==equiv && subj<threshold)addKidds->found
+            //dropping nodes which are out of threshold
+            else indToSubj.tail->found
           }
           calc(_found,_stack)
       }
     }
-    calc(0,Stack().push(start->0)).toString
+    calc(0,List(start->0)).toString
   }
 
   def calcNumberOfRoutesByStops(threshold:Int,cond:Val,route:String)={
@@ -121,13 +142,6 @@ class Trains(graph:String) {
     calcWeightWithConditions((w,s)=>cond(w+s,threshold),cond,(w,s)=>s + w,threshold,route)
   }
 
-
- /* println(calcDirectRouteDistance("A-D-C-H."))
-  println(calcShortestDistance("B,E"))
-  println(calcNumberOfRoutesByStops(3,lt,"C,C"))
-  println(calcNumberOfRoutesByStops(4,equiv,"A,C"))
-  println(calcNumberOfRoutesByDistance(30,lt,"C,C"))
-*/
 
 
 
