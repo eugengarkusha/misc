@@ -17,21 +17,23 @@ class Trains(val graph:String) {
   val A_CODE=65;
   val MIN_DIGIT=48
   val MAX_DIGIT=57
-  def ERR= throw new IllegalArgumentException("Unsupported input format")
+  def ERR(msg:String="Unsupported input format")= throw new IllegalArgumentException(msg)
 
-  //CHECK FOR START END POINT
-  //CHECK FOR DUP ROUTES
-
-  
   //let format be a bit more liberal for spaces
   val parsed =graph.trim.split("\\s*,\\s+").map(_.toList).map{
     case from::to::weight if weight.forall(c=> c>=MIN_DIGIT && c<=MAX_DIGIT) => (from-A_CODE ,to-A_CODE, weight.mkString.toInt)
-    case _ => ERR
+    case _ => ERR()
   }
+
+  //input string additional checks
+  {val fromTo=parsed.map{case(from,to,_)=>(from,to)}
+    if(fromTo.distinct.size!=parsed.size)ERR("Duplicate routed detected")
+    if(fromTo.exists{case(from,to)=>from==to})ERR("Loop routes detected")}
+
+
 
   //size is determined by the index of the element with maximal code(its expected that node labels sequence is consistent)
   val listSize=parsed.foldLeft(0){case (max,(from,to,_))=>Seq(max,from,to).max}+1
-
   //Adjacency list to represent graph
   val adjList=new Array[Iterable[(Int,Int)]](listSize)
 
@@ -44,7 +46,7 @@ class Trains(val graph:String) {
     @tailrec
     def calc(route:Iterable[Int],prevPoint:Int,aggregatedWeight:Int):String= {
       route.headOption.map { nextPoint =>
-         adjList(prevPoint).toMap.get(nextPoint).map(weight => (route.drop(1), nextPoint, aggregatedWeight + weight))
+         adjList(prevPoint).find(_._1==nextPoint).map{case(_,weight) => (route.drop(1), nextPoint, aggregatedWeight + weight)}
       } match {
         case Some(Some((route, point, weight))) => calc(route, point, weight)
         case Some(None) => "NO SUCH ROUTE"
@@ -52,12 +54,12 @@ class Trains(val graph:String) {
       }
     }
 
-    val prsedRt = """^([A-Z]-)+[A-Z]\.?$""".r.findFirstIn(route).map(_.split("-").map(_.charAt(0)-A_CODE)).getOrElse(ERR)
+    val prsedRt = """^([A-Z]-)+[A-Z]\.?$""".r.findFirstIn(route).map(_.split("-").map(_.charAt(0)-A_CODE)).getOrElse(ERR())
     calc(prsedRt.drop(1),prsedRt.head,0)
 
   }
 
-  private def getStartEnd(route:String)="""^[A-Z],[A-Z]$""".r.findFirstIn(route).map(s=>(s.charAt(0)-A_CODE,s.charAt(2)-A_CODE)).getOrElse(ERR)
+  private def getStartEnd(route:String)="""^[A-Z],[A-Z]$""".r.findFirstIn(route).map(s=>(s.charAt(0)-A_CODE,s.charAt(2)-A_CODE)).getOrElse(ERR())
 
   //Dijkstra’s algorithm is applied here
   def calcShortestDistance(route:String)={
@@ -73,11 +75,8 @@ class Trains(val graph:String) {
 
      if(indsToAggrWeights.nonEmpty){
        val ((start,aggregatedWeight),tail)=(indsToAggrWeights.head,indsToAggrWeights.tail)
-       println("start="+start)
        def kids=adjList(start)
-       println("kids=="+kids)
-
-       calc {
+       if(kids!=null)calc {
          kids.map {
            case k@(ind, weight) =>
              val fullWeight = weight + aggregatedWeight
@@ -87,7 +86,7 @@ class Trains(val graph:String) {
              } else None
          }.flatten.toList.sortBy(_._2)(implicitly[Ordering[Int]].reverse).foldLeft(tail){
            case(tail, (kInd,kWeight)) => (kInd, aggregatedWeight + kWeight)::tail}
-       }
+       }else calc(tail)
       }
     }
 
@@ -105,21 +104,19 @@ class Trains(val graph:String) {
 
   import Conditions._
   //this method covers relatively similar cases 6 , 7 and 10.
-  //subjectProcessor - transforms subject of calculation based on nodes weight(weight is ignored in case of stops calculation)
+  //subjectProcessor - transforms subject of calculation based on nodes weight and current subject of calculation (weight is ignored in case of stops calculation)
   private def calcWeightWithConditions(searchCond:Val,subjProcessor:(Int,Int)=>Int,route:String)={
 
     val(start,end)=getStartEnd(route)
     //indToSubj is the aggregator similar to one used in calcShortestDistance
     //ind - node index, subj- subject of calculation(weight or path length)
-    def calc(found:Int,indToSubj:List[(Int,Int)]):Int= {
-      if (indToSubj.isEmpty) found  else{
-        val ((start, subj), tail) = indToSubj.head->indToSubj.tail
-          val kids=adjList(start).map{case(kInd,kWeight) => (kInd, subjProcessor(kWeight,subj))}.filterNot(_._2 > searchCond.threshold)
-          val calcFound=kids.find(_._1==end).find(k=>searchCond(k._2)).map(_=>found+1).getOrElse(found)
-          calc(calcFound,tail++kids)
-      }
+    def calc(indToSubj:(Int,Int)):Int= {
+        val (start, subj)= indToSubj
+        val kids=adjList(start).map{case(kInd,kWeight) => (kInd, subjProcessor(kWeight,subj))}.filterNot(_._2 > searchCond.threshold)
+        val calcFound=kids.find(_._1==end).find(k=>searchCond(k._2)).map(_=>1).getOrElse(0)
+        if(kids.isEmpty)0 else{kids.par.map(k=>calc(k)).reduce(_+_)+calcFound}
     }
-    calc(0,List(start->0)).toString
+    calc(start->0).toString
   }
 
   def calcNumberOfRoutesByStops(cond:Val,route:String)={
