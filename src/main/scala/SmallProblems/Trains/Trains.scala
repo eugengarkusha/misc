@@ -97,7 +97,7 @@ class Trains(val graph:String) {
   object Conditions {
     abstract class Val(get:(Int,Int)=>Boolean){ def threshold:Int;def apply(subj:Int)=get(subj,threshold)}
     private val ord = implicitly[Ordering[Int]]
-    case class Eq(threshold:Int)extends Val(ord.equiv)
+    case class :=(threshold:Int)extends Val(ord.equiv)
     case class <(threshold:Int)extends Val(ord.lt)
     case class <=(threshold:Int)extends Val(ord.lteq)
   }
