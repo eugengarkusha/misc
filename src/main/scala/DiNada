@@ -1,0 +1,130 @@
+import scala.concurrent.{Await, Future}
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.duration._
+
+trait Monad[H[_]]{
+  def map[T,R](h:H[T])(f: T => R):H[R]
+  def flatMap[T,R](h:H[T])(f: T => H[R]):H[R]
+  def point[T](t:T):H[T]
+}
+
+trait Semigroup[T]{
+  def  apply(a:T, b:T):T
+}
+trait Foldable[H[_]]{
+  def foldLeft[R,T](ht:H[T], r:R)(f:(T,R)=>R):R
+}
+
+trait Zero[H]{
+  def zero : H
+}
+
+//implicit def mZero[H[_], T](implicit mh:Monad[H], tz:Zero[T]) = new Zero[H[T]]{
+//  def zero : H[T] = mh.point(tz.zero)
+//}
+
+implicit def nZero[N:Numeric] = new Zero[N]{
+  def zero : N = implicitly[Numeric[N]].zero
+}
+implicit def numSemi[T](implicit n:Numeric[T])  = new  Semigroup [T]{
+  override def apply(a: T, b: T): T = n.plus(a,b)
+}
+
+implicit object FM extends Monad[Future]{
+  override def map[T, R](h: Future[T])(f: (T) => R): Future[R] = h map f
+
+  override def flatMap[T, R](h: Future[T])(f: (T) => Future[R]): Future[R] = h flatMap f
+  override def point[T](t: T): Future[T] = Future.successful(t)
+}
+//thing of generalizing these
+implicit def fZero[T](implicit tz:Zero[T]) = new Zero[Future[T]]{
+  def zero : Future[T] = Future.successful(tz.zero)
+}
+class mSemi[H[_],T](implicit m:Monad[H], s:Semigroup[T]) extends Semigroup[H[T]]{
+  override def apply(a: H[T], b: H[T]): H[T] = m.flatMap(a)(aa=>m.map(b)(bb=> s(aa,bb)))
+}
+implicit def fSemi[T](implicit ts:Semigroup[T]):  Semigroup[Future[T]] = new mSemi()(implicitly[Monad[Future]],ts)
+
+implicit object lZero extends  Zero[List[_]]{
+  override def zero: List[_] = Nil
+}
+
+implicit object oZero extends  Zero[Option[_]]{
+  override def zero: Option[_] = None
+}
+implicit object oMonad extends Monad[Option]{
+  override def map[T, R](h: Option[T])(f: (T) => R): Option[R] = h.map(f)
+
+  override def flatMap[T, R](h: Option[T])(f: (T) => Option[R]): Option[R] = h.flatMap(f)
+
+  override def point[T](t: T): Option[T] = Some(t)
+}
+implicit def oSemi[T:Semigroup] = new Semigroup[Option[T]]  {
+  override def apply(a: Option[T], b: Option[T]): Option[T] = new mSemi[Option, T].apply(a,b).orElse(b)
+}
+
+
+implicit object oFoldable extends Foldable[Option]{
+  override def foldLeft[R, T](ht: Option[T], r: R)(f: (T, R) => R): R = ht.foldLeft(r)((a,b)=> f(b,a))
+}
+
+implicit def zeroHAny[H[_],T](implicit z: Zero[H[_]]) = z.asInstanceOf[Zero[H[T]]]
+
+implicit object  lSemi  extends Semigroup[List[_]] {
+  override def apply(a: List[_], b: List[_]): List[_] = a ++ b
+}
+implicit def semiAny[H[_], T](implicit s: Semigroup[H[_]]) = s.asInstanceOf[Semigroup[H[T]]]
+
+implicit def getLm[I]= new LM[I]
+ class LM[I] extends Monad[List] with Foldable[List]{
+  override def map[T, R](h: List[T])(f: (T) => R): List[R] = h map f
+
+  override def flatMap[T, R](h: List[T])(f: (T) => List[R]): List[R] = h flatMap f
+
+  override def point[T](t: T): List[T] = t :: Nil
+
+  override def foldLeft[R, T](ht: List[T], r: R)(f: (T, R) => R): R = ht.foldLeft(r)((r,t)=>f(t,r))
+
+}
+
+//what with futures? no semigroup for them(actually there is one if type parameter is itself semigroup)
+//get rid of stupid I type parameter in type classes?
+implicit class DiNada[H[_], T[_],I](h:H[T[I]])(implicit monadH:Monad[H], monadT:Monad[T] ) {
+
+
+  def map[R](f: (I) => R): H[T[R]] = monadH.map(h)(ti => monadT.map(ti)(f))
+
+  def flatMap[R](f: (I) => H[T[R]])(implicit zeroH:Zero[H[T[R]]], semiHtr:Semigroup[H[T[R]]], fold:Foldable[T]): H[T[R]] =  {
+    monadH.flatMap(h){ ti => fold.foldLeft(ti, zeroH.zero)((i,htr)=>semiHtr.apply(htr,f(i)))}
+  }
+  //List[List[Int]].flatMap(int =>)
+  // def point[I](i: I): H[T[I]] = monadH.point(monadT.point(i))
+}
+val k :DiNada[List,List,Int]= List(List(1), List(2,3,4),List(5,6))
+val k1:DiNada[List,List,Int] = List(List(7),List(11,12))
+for(ka<-k;ka1<-k1)yield ka+ka1
+////k.Amap(_ + 1)
+////k.AflatMap(i=> List(List(i,i,i), List(i,i,i)))
+val f:DiNada[Future,List,Int] = Future(List(1,2,3,4))
+val lk = f.map(_ + 1 )
+val lkk = f.flatMap(i=>Future(List(i,i,i)))
+Await.result(lk,5.seconds)
+Await.result(lkk,5.seconds)
+//
+val fo :DiNada[Future, Option, Int] = new DiNada(Future.successful(Some(1)))
+val fo1 :DiNada[Future, Option, Int] = Future.successful(Some(2))
+val jj = for(a<-fo;b<-fo1)yield a+b
+Await.result(jj,10.seconds)
+
+def evert[H[_], T[_],I](v:H[T[I]])(implicit monadH:Monad[H], zeroHi:Zero[H[I]],foldableH:Foldable[H], monadT:Monad[T]): T[H[I]] = {
+  foldableH.foldLeft(v, monadT.point(zeroHi.zero))((t, r) =>monadT.map(t)(i=> monadH.point(i)))
+}
+
+
+//
+val of :DiNada[Future,Option, Int] = new DiNada(evert(Option(Future.successful(3))))
+val of1 :DiNada[Future,Option, Int]= new DiNada(evert(Option(Future.successful(4))))
+val ojj = for(a<-of;b<-of1)yield a+b
+evert(Option(List(1,2,3)))
+//evert(ojj).map(f=>Await.result(f,10.seconds) )
+Await.result(ojj,10.seconds)
